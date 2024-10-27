@@ -699,12 +699,13 @@ function adjustPointing(ra, dec) {
         dec += dec_offset;
 
         // Store the best RA/Dec if it’s the closest to target so far
-        if (Math.abs(ra_offset) < Math.abs(best_ra_offset) && Math.abs(dec_offset) < Math.abs(best_dec_offset)) {
+        if (Math.abs(ra_offset) < Math.abs(best_ra_offset) || Math.abs(dec_offset) < Math.abs(best_dec_offset)) {
             best_ra = ra;
             best_dec = dec;
             best_ra_offset = ra_offset;
             best_dec_offset = dec_offset;
         }
+
 
         // Convert RA back to hours for gotoRADec call
         var new_ra_hours = ra / 15;
