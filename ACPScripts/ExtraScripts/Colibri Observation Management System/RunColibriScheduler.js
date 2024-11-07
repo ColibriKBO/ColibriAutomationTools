@@ -1,7 +1,7 @@
 // Scheduling observation request objects
 // Request Object is used to represent scheduling observation requests.
 // Each request contains details such as target coordinates, timing, exposure settings, and observation metadata.
-function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, obsDuration, exposureTime, filter, binning, csvIndex) {
+function Request(directoryName, priority, ra, dec, alt, az, startUTC, startJD, endUTC, endJD, obsDuration, exposureTime, filter, binning, csvIndex) {
     // Directory name where the observation data will be saved.
     this.directoryName = directoryName;
     // Priority of the observation request (higher priority requests are scheduled first).
@@ -11,6 +11,12 @@ function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, en
     this.ra = ra;
     // Declination (DEC) of the celestial target (in degrees).
     this.dec = dec;
+
+    // Altitude
+    this.alt = alt;
+
+    // Azimuth
+    this.az = az;
 
     // Start time of the observation in UTC format (human-readable).
     this.startUTC = startUTC;
@@ -136,7 +142,7 @@ function getRequests() {
                         rowData[indices.binning], // Binning setting.
                         rowCounter // Index of the request in the CSV file.
                     );
-
+                    Console.PrintLine("ADDING " + rowData[indices.directoryName])
                     // Add the newly created Request to the array.
                     requests.push(request);
                 }
@@ -858,7 +864,7 @@ function JDtoUTC(JulianDate) {
 	var month = (toUTC.getUTCMonth()+1).toString();
 	var day   = (toUTC.getUTCDate()).toString();
 
-	if (month.length == 1) {
+	if (month.length == 1) {    
 		s += "0" + month;
 	} else {
 		s += month;
@@ -880,6 +886,7 @@ function JDtoUTC(JulianDate) {
 function updateRaDec(requests) {
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
+        Console.PrintLine("!!!Updating" + request.directoryName);
         
         // Check if altitude and azimuth values are provided
         if (request.altitude != null && request.azimuth != null) {
@@ -1264,6 +1271,9 @@ var ForWriting = 2;
 // A variable to track the number of telescope slew attempts.
 var slewAttempt = 0;
 
+// A variable to bypass requirements while testing
+var testing = true;
+
 // Log to console and file if logging is enabled.
 if (logconsole == true) {
     // Create a log file with a timestamped name and enable logging.
@@ -1347,6 +1357,16 @@ function main() {
 
     // Prestart checks for weather conditions
     // Check to see if the weather server is connected. If it isn't ask for permission to continue.
+
+    if(testing){
+        if(Util.Confirm("Testing is enabled. Do you want to continue? Time and Weather Checks will be bypassed.")){
+            Console.PrintLine("Testing enabled.")
+        }
+        else{
+            Console.PrintLine("Testing aborted.")
+            abort();
+        }
+    }
 	if (Weather.Available) {
         // If weather server is connected, log success and wait for 3 seconds.
             updateLog("Weather server is connected. Contining with operations.", "INFO");
@@ -1364,11 +1384,11 @@ function main() {
     }
     
     // Handle unsafe weather conditions by waiting until conditions improve.
-    if (Weather.Available && !Weather.safe) {
+    if (Weather.Available && !Weather.safe && !testing) {
         updateLog("Weather unsafe! Waiting until it's looking a bit better out.", "INFO");
     }
 
-    while (Weather.Available && !Weather.safe) {
+    while (Weather.Available && !Weather.safe && !testing) {
         // If a new day starts, update the log file.
         if (getDate() != currentDate) {
             currentDate = getDate();
@@ -1441,10 +1461,12 @@ function main() {
         firstRun = false
     }
 
+    Console.PrintLine("Grabbing sheet");
     // Retrieve observation requests and their corresponding CSV lines.
     var csvData = getRequests();
     var requests = csvData[0]; // Observation requests
     var lines = csvData[1]; // Lines from the CSV file
+    Console.PrintLine("Sheet Grabbed");
 
     // Begin the main observation loop.
     do {
@@ -1455,19 +1477,19 @@ function main() {
 
         // Safeguard: Prevent observing before sunset
         // (This can be commented out for simulated testing during the day)
-        while (Util.SysJulianDate < sunset) {
+        while (Util.SysJulianDate < sunset && !testing) {
             updateLog("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.", "INFO");
             Util.WaitForMilliseconds(5000); // Wait for 5 seconds before checking again.
         }
 
         // Safeguard: Stop observing if it's past sunrise
-        if (Util.SysJulianDate > sunrise) {
+        if (Util.SysJulianDate > sunrise && !testing) {
             updateLog("Too late. Nothing left to observe.", "INFO");
             andRestart(); // Restart the system
         }
 
         // Monitor the weather and check if it is safe to observe.
-        if ((Weather.Available && Weather.safe) || (ignoreWeather == true)) {
+        if ((Weather.Available && Weather.safe) || (ignoreWeather == true) || testing) {
             Console.PrintLine("Checking Weather");
             connectScope(); // Connect to the telescope.
             domeOpen(); // Open the dome.
