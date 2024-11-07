@@ -54,16 +54,19 @@ function RequestIndices() {
 
     this.ra = 2;                // Index of the Right Ascension (RA) field.
     this.dec = 3;               // Index of the Declination (DEC) field.
+    
+    this.alt = 4;               // Index of the altitude field.
+    this.az = 5;                // Index of the azimuth field.
 
-    this.startTime = 4;         // Index of the observation start time field.
-    this.endTime = 5;           // Index of the observation end time field.
+    this.startTime = 6;         // Index of the observation start time field.
+    this.endTime = 7;           // Index of the observation end time field.
 
-    this.obsDuration = 6;       // Index of the observation duration field.
-    this.exposureTime = 7;      // Index of the exposure time field.
-    this.filter = 8;            // Index of the filter field.
-    this.binning = 9;           // Index of the binning field.
+    this.obsDuration = 8;       // Index of the observation duration field.
+    this.exposureTime = 9;      // Index of the exposure time field.
+    this.filter = 10;            // Index of the filter field.
+    this.binning = 11;           // Index of the binning field.
 
-    this.completion = 10;       // Index to track whether the observation request has been completed (1 for completed, 0 for uncompleted).
+    this.completion = 12;       // Index to track whether the observation request has been completed (1 for completed, 0 for uncompleted).
 }
 
 // Scheduling-related functions
@@ -121,6 +124,8 @@ function getRequests() {
                         parseInt(rowData[indices.priority]), // Priority as an integer.
                         parseFloat(rowData[indices.ra]), // Right Ascension as a float.
                         parseFloat(rowData[indices.dec]), // Declination as a float.
+                        parseFloat(rowData[indices.alt]), // Altitude as a float.
+                        parseFloat(rowData[indices.az]), // Azimuth as a float.
                         rowData[indices.startTime], // Start time in UTC.
                         UTCtoJD(rowData[indices.startTime]), // Convert start time to Julian Date.
                         rowData[indices.endTime], // End time in UTC.
@@ -867,6 +872,33 @@ function JDtoUTC(JulianDate) {
 	return(s);
 }
 
+////////////////////////////////////////
+// Update RA and DEC in Request array which have an altitude and azimuth
+// NB - 2024/11/7
+////////////////////////////////////////
+
+function updateRaDec(requests) {
+    for (var i = 0; i < requests.length; i++) {
+        var request = requests[i];
+        
+        // Check if altitude and azimuth values are provided
+        if (request.altitude != null && request.azimuth != null) {
+            // Create a new coordinate transformation object using current LST and site latitude
+            var ct = Util.NewCT(Telescope.SiteLatitude, Util.NowLST());
+            
+            // Set Altitude and Azimuth, which should trigger the conversion to RA/Dec
+            ct.Altitude = request.altitude;
+            ct.Azimuth = request.azimuth;
+            
+            // Retrieve the converted RA and Dec values
+            request.RightAscension = ct.RightAscension;
+            request.Declination = ct.Declination;
+        }
+    }
+
+    return requests;
+}
+
 
 /////////////////////////////////////////////////////
 // Return the coordinates of the moon in RA and Dec
@@ -1090,7 +1122,7 @@ function adjustPointing(ra, dec) {
 }
 
 ///////////////////////////////////////////////////////////////
-// Shuts down the telescope and dome after boservations are complete.
+// Shuts down the telescope and dome after observations are complete.
 // Turns off tracking, parks the telescope, and closes the dome.
 // Also handles updating the schedule for incomplete observations (currently a placeholder)
 // MJM - June 23, 2022
@@ -1417,6 +1449,7 @@ function main() {
     // Begin the main observation loop.
     do {
         // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
+        requests = updateRADEC(requests); // Update RA and DEC coordinates for each observation request that has an altitude and azimuth.
         var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT);
         Console.PrintLine(bestObs)
 
