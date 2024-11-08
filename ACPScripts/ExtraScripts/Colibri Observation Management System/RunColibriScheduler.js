@@ -162,13 +162,13 @@ function getRequests() {
 }
 
 // Selects the best observation from a list of requests, based on various filtering and ranking criteria.
-function selectBestObservation(requests, sunset, sunrise, moonCT) {
+function selectBestObservation(requests, sunset, sunrise, moonCT, testing) {
     // Log and print the list of requests before filtering.
     updateLog("Requests before filtering.", "INFO");
     printPlan(requests);
 
     // Filter out observations that don't fit within the time window or between sunset and sunrise.
-    var suitableObs = filterByTime(requests, sunset, sunrise);
+    var suitableObs = filterByTime(requests, sunset, sunrise, testing);
     // Log and print the list of requests after time filtering.
     updateLog("Requests after time filtering.", "INFO");
     printPlan(suitableObs);
@@ -191,9 +191,16 @@ function selectBestObservation(requests, sunset, sunrise, moonCT) {
 }
 
 // Filters the observation requests by checking if they fall within the allowed time window and between sunset and sunrise.
-function filterByTime(requests, sunset, sunrise) {
+function filterByTime(requests, sunset, sunrise, testing) {
     var filteredObs = [];
+
+    if(!testing){
     var currJD = Util.SysJulianDate; // Get the current Julian Date.
+    }
+    else{
+        currJD = sunset;
+    }
+
 
     // Loop through each request and check if it fits within the time window and sunset/sunrise.
     for (var i = 0; i < requests.length; i++) {
