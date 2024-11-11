@@ -123,6 +123,7 @@ function getRequests() {
                 rowData = line.split(","); // Split the line by commas to get individual fields.
                 
                 // Check if the observation request has not been completed (completion field is 0).
+                Console.PrintLine("At " + rowData[indices.directoryName])
                 if (rowData[indices.completion] == 0) {
                     // Create a new Request object using the parsed CSV fields.
                     var request = new Request(
@@ -142,7 +143,7 @@ function getRequests() {
                         rowData[indices.binning], // Binning setting.
                         rowCounter // Index of the request in the CSV file.
                     );
-                    Console.PrintLine("ADDING " + rowData[indices.directoryName])
+                   
                     // Add the newly created Request to the array.
                     requests.push(request);
                 }
@@ -174,7 +175,7 @@ function selectBestObservation(requests, sunset, sunrise, moonCT, testing) {
     printPlan(suitableObs);
 
     // Filter out observations that don't meet the required astronomical conditions (e.g., moon proximity, altitude).
-    suitableObs = filterByAstronomy(suitableObs, moonCT);
+    suitableObs = filterByAstronomy(suitableObs, moonCT, testing);
     // Log and print the list of requests after astronomy filtering.
     updateLog("Requests after astronomy filtering.", "INFO");
     printPlan(suitableObs);
@@ -198,7 +199,8 @@ function filterByTime(requests, sunset, sunrise, testing) {
     var currJD = Util.SysJulianDate; // Get the current Julian Date.
     }
     else{
-        currJD = sunset;
+        Console.PrintLine("TESTING adding .2 to jd")
+        currJD = sunset + .2;
     }
 
 
@@ -217,17 +219,49 @@ function withinTimeWindow(request, currJD, sunset, sunrise) {
     var startWindow = request.startJD;  // Start time of the observation request (in Julian Date).
     var endWindow = request.endJD;      // End time of the observation request (in Julian Date).
 
+    Console.PrintLine("Start window " + startWindow);
+    Console.PrintLine("End window " + endWindow);
+    Console.PrintLine("Current " + currJD);
+    Console.PrintLine("sunrise " + sunrise);
+    Console.PrintLine("Sunset " + sunset);
     // Calculate the end time of the observation in Julian Date.
     var endJD = currJD + (request.obsDuration / 1440); // obsDuration is in minutes, dividing by 1440 gives days.
+    Console.PrintLine("End Observation " + endJD);
 
     // Check if the observation fits within the time window and returns true if it does.
+        // Condition 1: startWindow <= currJD && currJD <= endWindow
+    Console.PrintLine("Condition 1.1: startWindow <= currJD = " + (startWindow <= currJD));
+    Console.PrintLine("Condition 1.2: currJD <= endWindow = " + (currJD <= endWindow));
+
+    // Condition 2: endJD <= sunrise && sunset <= startWindow
+    Console.PrintLine("Condition 2.1: endJD <= sunrise = " + (endJD <= sunrise));
+    Console.PrintLine("Condition 2.2: sunset <= startWindow = " + (sunset <= startWindow));
+
+    // Condition 3: startWindow <= sunrise && sunset <= endWindow
+    Console.PrintLine("Condition 3.1: startWindow <= sunrise = " + (startWindow <= sunrise));
+    Console.PrintLine("Condition 3.2: sunset <= endWindow = " + (sunset <= endWindow));
+
+    // Condition 4: endWindow <= sunrise
+    Console.PrintLine("Condition 4: endWindow <= sunrise = " + (endWindow <= sunrise));
+
+
     return startWindow <= currJD && currJD <= endWindow && endJD <= sunrise && sunset <= startWindow && startWindow <= sunrise && sunset <= endWindow && endWindow <= sunrise;
 }
 
 // Filters the observation requests by checking if they meet certain astronomical conditions (e.g., target altitude and distance from the moon).
-function filterByAstronomy(requests, moonCT) {
+function filterByAstronomy(requests, moonCT, testing) {
     var filteredObs = [];
-    var currLST = Util.NowLST(); // Get the current Local Sidereal Time.
+    
+
+    if(!testing){
+        var currLST = Util.NowLST(); // Get the current Local Sidereal Time.
+        }
+        else{
+            Console.PrintLine("Testing Adjusting Sidereal time")
+            currLST = 20
+            Console.PrintLine("Sidereal time" + currLST)
+        }
+    
 
     // Loop through each request and check if it meets the astronomical conditions.
     for (var i = 0; i < requests.length; i++) {
@@ -254,6 +288,9 @@ function meetsAstronomyConditions(request, moonCT, newLST) {
     request.moonAngle = moonAngle;
 
     // Return true if the target's ltitude is above the elevation limit and if the moon's angle is greater than the minimum offset.
+    Console.PrintLine("TARGET: " + request.directoryName)
+    Console.PrintLine("targetAltitude > elevationLimit " + (targetAltitude > elevationLimit));
+    Console.PrintLine("moonAngle > minMoonOffset " + (moonAngle > minMoonOffset));
     return targetAltitude > elevationLimit && moonAngle > minMoonOffset;
 }
 
@@ -261,8 +298,10 @@ function meetsAstronomyConditions(request, moonCT, newLST) {
 function calculateAltitude(ra, dec, newLST) {
     var ct = Util.NewCT(Telescope.SiteLatitude, newLST); // Create a new coordinate transform (CT) object with the telescope's latitude and current LST.
 
+    Console.PrintLine("Elevation before: " + ct.Elevation);
     ct.RightAscension = ra/15; // Convert Right Ascension from degrees to hours. Set the Right Ascension of the target.
     ct.Declination = dec; // Set the Declination of the target.
+    Console.PrintLine("Elevation after: " + ct.Elevation);
 
     return ct.Elevation; // Return the target's altitude (elevation) in degrees.
 }
@@ -893,10 +932,12 @@ function JDtoUTC(JulianDate) {
 function updateRaDec(requests) {
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
-        Console.PrintLine("!!!Updating" + request.directoryName);
         
+        Console.PrintLine("Before " + request.directoryName)
+        Console.PrintLine(request.directoryName + "Altitude " + request.alt)
         // Check if altitude and azimuth values are provided
-        if (request.altitude != null && request.azimuth != null) {
+        if (request.alt != null && request.az != null) {
+            Console.PrintLine("!!!Updating" + request.directoryName);
             // Create a new coordinate transformation object using current LST and site latitude
             var ct = Util.NewCT(Telescope.SiteLatitude, Util.NowLST());
             
@@ -905,8 +946,8 @@ function updateRaDec(requests) {
             ct.Azimuth = request.azimuth;
             
             // Retrieve the converted RA and Dec values
-            request.RightAscension = ct.RightAscension;
-            request.Declination = ct.Declination;
+            requests[i].RightAscension = ct.RightAscension;
+            requests[i].Declination = ct.Declination;
         }
     }
 
@@ -1478,10 +1519,15 @@ function main() {
     // Begin the main observation loop.
     do {
         // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
-        requests = updateRADEC(requests); // Update RA and DEC coordinates for each observation request that has an altitude and azimuth.
-        var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT);
+        requests = updateRaDec(requests); // Update RA and DEC coordinates for each observation request that has an altitude and azimuth.
+        var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT,testing);
         Console.PrintLine(bestObs)
 
+        Console.PrintLine("Best Observation azimuth " + bestObs.Azimuth)
+        if(bestObs.Azimuth != null){
+            Telescope.Tracking = false;
+            Console.PrintLine("Azimuth provided, tracking turned off")
+        }
         // Safeguard: Prevent observing before sunset
         // (This can be commented out for simulated testing during the day)
         while (Util.SysJulianDate < sunset && !testing) {
