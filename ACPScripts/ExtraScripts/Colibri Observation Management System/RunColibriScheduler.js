@@ -435,7 +435,7 @@ function updateLog(contents, type) {
     // Print the log message to the console.
     Console.PrintLine(contents);
     // Write the log message to a file with a timestamp, type, and the log content.
-    ts.writeLine(Util.SysUTCDate + " " + type + ": " + contents);
+   // ts.writeLine(Util.SysUTCDate + " " + type + ": " + contents);
 }
 
 // Handles script actions such as aborting, restarting, and shutdown 
