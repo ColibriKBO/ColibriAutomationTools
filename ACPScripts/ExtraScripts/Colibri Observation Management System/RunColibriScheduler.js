@@ -143,58 +143,31 @@ function getRequests() {
 // NB - 2024/11/7
 ////////////////////////////////////////
 
-function altAzToRaDec(alt, az) {
-    Console.PrintLine("Convert alt az to ra dec")
-    // Observer's latitude from the telescope
-    lat = Telescope.SiteLatitude; // Latitude in radians
-
-    // Local Sidereal Time from the telescope
-    lst = Util.NowLST(); // Local Sidereal Time in radians
-
-    // Adjust azimuth: convert from South=0 convention to North=0
-    az += Math.PI;
-    if (az > 2 * Math.PI) az -= 2 * Math.PI;
-    
-    // Calculate declination (Dec)
-    sinDec = Math.sin(lat) * Math.sin(alt) + Math.cos(lat) * Math.cos(alt) * Math.cos(az);
-    dec = Math.asin(sinDec);
-    Console.PrintLine( " Declination " + dec)
-    // Calculate hour angle (H)
-    sinH = -Math.cos(alt) * Math.sin(az);
-    cosH = Math.cos(alt) * Math.cos(az) * Math.sin(lat) - Math.sin(alt) * Math.cos(lat);
-    H = Math.atan2(sinH, cosH);
-
-    // Normalize H to range [0, 2π]
-    if (H < 0) H += 2 * Math.PI;
-
-    // Calculate right ascension (RA)
-    ra = lst - H;
-    Console.PrintLine( " Ra " + ra)
-    // Normalize RA to range [0, 2π]
-    if (ra < 0) ra += 2 * Math.PI;
-    Console.log
-    return [ra, dec];
-}
-
-function requestAltAzToRaDec(requests) {
+function transformAltAzToRadDec(requests) {
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
         
         Console.PrintLine("Before " + request.directoryName)
-        Console.PrintLine(request.directoryName + " Altitude " + request.alt)
-        Console.PrintLine(request.directoryName + " Azimuth " + request.az)
+        Console.PrintLine(request.directoryName + " Altitude: " + request.alt)
         // Check if altitude and azimuth values are provided
         if (request.alt != null && request.az != null) {
-            var ra
-            var dec
-            
-            coordinates = altAzToRaDec(request.alt, request.az)
-            Console.PrintLine(coordinates)
-            ra = coordinates[0];
-            dec = coordinates[1];
-            Console.PrintLine(request.directoryName + " RA " + ra)
-            request[i].ra = ra
-            request[i].dec = dec
+            Console.PrintLine("!!!Updating" + request.directoryName);
+
+            // Create a new coordinate transformation object using current LST and site latitude
+            var ct = Util.NewCThereAndNow();
+          
+            // Enter the elevation (altitude) and azimuth to the cordinate transformation to calculate the ra/dec
+            ct.Elevation = request.alt;
+            ct.Azimuth = request.az;
+
+            // Retrieve the converted RA and Dec values
+            requests[i].ra = ct.RightAscension
+            requests[i].dec = ct.Declination
+
+            // Converted RA and Dec values
+            Console.PrintLine(requests[i].directoryName + " Right Ascension: " + requests[i].ra);
+            Console.PrintLine(requests[i].directoryName + " Declination: " + requests[i].dec);
+
         }
     }
 
@@ -1536,11 +1509,12 @@ function main() {
     // Begin the main observation loop.
     do {
         // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
-        requests = requestAltAzToRaDec(requests); // Update RA and DEC coordinates for each observation request that has an altitude and azimuth.
+        requests = transformAltAzToRadDec(requests); // Update RA and DEC coordinates for each observation request that has an altitude and azimuth.
         var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT,testing);
         Console.PrintLine(bestObs)
 
-        Console.PrintLine("Best Observation azimuth " + bestObs.Azimuth)
+        Console.PrintLine("Best Observation azimuth " + bestObs.Azimuth);
+        Console.PrintLine("Best Observation ra" + bestObs.ra);
         if(bestObs.Azimuth != null){
             trkOff()
             Console.PrintLine("Azimuth provided, tracking turned off")
