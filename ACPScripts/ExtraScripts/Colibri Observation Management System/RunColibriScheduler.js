@@ -322,17 +322,7 @@ function selectTopObservation(requests) {
 
 // Auxiliary functions
 // Updates the day in a time string.
-// TODO: This function doesn't work yet.
-function updateDayOldVersion(timeString) {
-
-    var parts = timeString.split(":"); // Split the time string into parts.
-    var day = parseInt(parts[2]) + 1; // Parse the day and increment by 1.
-    // Ensure that the day part is formatted with a leading zero if necessary.
-    parts[2] = (day < 10 ? "0" : "") + day;
-    // Recombine the parts into a single time string and return it.
-    return parts.join(":");
-}
-
+// Owen and Akshat fixed this function Nov 21, 2024
 function updateDay(timeString) {
     // Parse the input time string into a Date object
     var date = new Date(timeString);
