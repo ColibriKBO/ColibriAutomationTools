@@ -1,3 +1,4 @@
+
 // Scheduling observation request objects
 // Request Object is used to represent scheduling observation requests.
 // Each request contains details such as target coordinates, timing, exposure settings, and observation metadata.
@@ -322,13 +323,42 @@ function selectTopObservation(requests) {
 // Auxiliary functions
 // Updates the day in a time string.
 // TODO: This function doesn't work yet.
-function updateDay(timeString) {
+function updateDayOldVersion(timeString) {
+
     var parts = timeString.split(":"); // Split the time string into parts.
     var day = parseInt(parts[2]) + 1; // Parse the day and increment by 1.
     // Ensure that the day part is formatted with a leading zero if necessary.
     parts[2] = (day < 10 ? "0" : "") + day;
     // Recombine the parts into a single time string and return it.
     return parts.join(":");
+}
+
+function updateDay(timeString) {
+    // Parse the input time string into a Date object
+    var date = new Date(timeString);
+
+    if (isNaN(date)) {
+        throw new Error("Invalid time string format.");
+    }
+
+    // Add one day
+    date.setDate(date.getDate() + 1);
+
+    // Convert back to ISO 8601 string and return
+    return toISODateString(originalDate)
+}
+
+function toISODateString(date) {
+    function pad(number) {
+        return number < 10 ? '0' + number : number;
+    }
+
+    return date.getUTCFullYear() + '-' +
+        pad(date.getUTCMonth() + 1) + '-' +
+        pad(date.getUTCDate()) + 'T' +
+        pad(date.getUTCHours()) + ':' +
+        pad(date.getUTCMinutes()) + ':' +
+        pad(date.getUTCSeconds()) + 'Z';
 }
 
 // Updates the CSV file with new lines while preserving the header row.
@@ -1414,6 +1444,11 @@ function main() {
     var requests = csvData[0]; // Observation requests
     var lines = csvData[1]; // Lines from the CSV file
 
+    //setup RunColibri fields here
+    mainRunColibri();
+    //keep track of which RunColibri field we are observing during 5 minute break intervals
+    var currentRunColibriField = 0;
+
     // Begin the main observation loop.
     do {
         // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
@@ -1444,6 +1479,31 @@ function main() {
         // If no suitable observation is found, wait for 5 minutes and retry.
         // TODO: Instead of waiting idly for 5 minutes when no suitable observations are found, add RunColibri KBO observation functionality.
         if (bestObs == "None") {
+
+            //get TNO field to observe from finalFields.csv file
+            // Read the CSV file
+            fs.readFile('finalFields.csv', 'utf8', (err, data) => {
+                if (err) {
+                    console.error('Error reading the CSV file', err);
+                    return;
+                }
+                // Split the file data into rows and then columns to create an array of arrays
+                const finalFields = data.trim().split("\n").map(row => row.split(","));
+                console.log(finalFields);
+            });
+
+            //current field to observe
+            //have to observe field
+            breakObservation(finalFields, currentRunColibriField);
+
+            currentRunColibriField++;
+            //check counter to make sure it correctly iterates through fields
+            if(currentRunColibriField >= finalFields.length){
+                currentRunColibriField = 0;
+            }
+
+
+
             Console.PrintLine("No suitable observation found in current conditions.")
             Console.PrintLine("Wait for 5 minutes and try again.")
             Util.WaitForMilliseconds(300000); // Wait for 5 minutes
@@ -1683,4 +1743,383 @@ function main() {
 
     // Safely shut down the system after all observation requests have been processed.
     shutDown();
+}
+
+function mainRunColibri()
+{
+
+/*-----------------------------Prestart Checks-------------------------------*/
+
+    // Check if there is enough space for this to run
+    spaceneeded = darkHoursLeft*3600*40*12600000/1000000000000  //
+    freespace = freeDiskSpace()
+    if (freespace > spaceneeded)
+    {
+        Console.PrintLine("We need " + spaceneeded + " TB of space to run tonight.")
+        Console.PrintLine("And we have " + freespace + " TB of free space available.")
+        Console.PrintLine("So, we're good to go!")
+    }
+    else
+    {
+        if (Util.Confirm("You need to free up " + (spaceneeded - freespace) + " TB of space. If you run out of space while this script is running, RunColibri will crash when d: is full. This will potentially damage the telescope! Do you want to continue anyway?"))
+        {
+            ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space. RunColibri will likely crash when you run out of space on d:.")
+        }
+        else
+        {
+            abort()
+        }
+    }
+
+/*-----------------------------Observing Plan--------------------------------*/
+
+    // Calculate field-moon angle for each field.
+    moonAngles = []
+    moonct = getMoon()
+    for (i=0; i<fieldInfo.length; i++)
+    {
+        b = (90-fieldInfo[i][2][1])*Math.PI/180
+        c = (90-moonct.Declination)*Math.PI/180
+        aa = Math.abs(fieldInfo[i][2][0]-moonct.RightAscension)*Math.PI/180
+        moonAngle = Math.acos((Math.cos(b)*Math.cos(c)) + (Math.sin(b)*Math.sin(c)*Math.cos(aa)))*180/Math.PI
+        moonAngles.push(moonAngle)
+        fieldInfo[i][4] = moonAngle
+    }
+
+    fieldsToObserve = [] // Array containing best field info in 6 minute increments
+
+    // Elevation [0], Azimuth [1], field [2], field name [3], moon angle [4], HA [5], airmass [6],
+    // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], start JD [12]
+    
+    // n is the number of samples in one observing block (length = timestep)
+    // that will be computed.
+    //n = Math.round(darkHours.toFixed(2)/timestep)
+    //Console.PrintLine("# of samples tonight: " + n)
+
+    // Calculate the local coordinates of each field at each timestep and the
+    // number of visible stars in each field when accounting for extinction
+    prevField = ""
+    for (k=0; k<n; k++)
+    {
+        // Assume that the moon angle is constant throughout the night
+        // In reality, it will move about 0.5 deg per hour
+        // aa.exe doesn't allow time input from command line, so we'll
+        // fix this later
+
+        // Create a new coordinate transform at intervals of timestep
+        newLST = parseFloat(sunsetLST) + k*timestep
+        newJD  = sunset + k*timestep/24
+        ct = Util.NewCT(Telescope.SiteLatitude, newLST)
+
+        // Start a loop to calculate approximate number of stars in fields
+        for (j=0; j < fieldInfo.length; j++)
+        {
+            // Set RA and DEC to field 'j' coordinates  
+            ct.RightAscension = fieldInfo[j][2][0] / 15; // in hours
+            ct.Declination = parseFloat(fieldInfo[j][2][1]);; // in degrees
+
+            // Field coordinate definitions
+            lat = ct.Latitude
+            alt = ct.Elevation
+            LST = ct.SiderealTime
+            HA = LST - ct.RightAscension
+            
+
+            // Set fieldInfo fields for spatial/temporal fields
+            fieldInfo[j][0] = ct.Elevation
+            fieldInfo[j][1] = ct.Azimuth
+            fieldInfo[j][5] = HA
+            fieldInfo[j][12] = newJD
+
+            // Calculate approx. # of stars in field using airmass/extinction
+            // Know limiting magnitude at zenith (say 12 in 25 ms)
+            // Know # of stars at M12 in each field
+            // Calculate extinction at current airmass
+            // With this new magnitude calculate approx. # of stars
+
+            // Calculate airmass and extinction
+            airmass = 1 / Math.cos((90-alt)*Math.PI/180)
+            fieldInfo[j][6] = airmass
+            extinction = (airmass-1) * extScale
+
+            // Calculate the true number of visible stars, accounting for extinction
+            numVisibleStars = parseInt(fieldInfo[j][8] * Math.exp(fieldInfo[j][9]*(magnitudeLimit-extinction)))
+            fieldInfo[j][10] = numVisibleStars
+            // Console.PrintLine("Airmass: " + airmass)
+            // Console.PrintLine("Number of visible M" + (magnitudeLimit-extinction).toPrecision(3) + " stars: " + numVisibleStars)
+
+        }
+
+        // Create goodFields array to hold fields that are above the horizon
+        // and far enough from the moon
+        goodFields = []
+
+        for (j=0; j < fieldInfo.length; j++)
+        {
+            if (fieldInfo[j][0] > elevationLimit && moonAngles[j] > minMoonOffset)
+            {
+                goodFields.push([fieldInfo[j][0],fieldInfo[j][1],fieldInfo[j][2],fieldInfo[j][3],fieldInfo[j][4],fieldInfo[j][5],fieldInfo[j][6],fieldInfo[j][7],fieldInfo[j][8],fieldInfo[j][9],fieldInfo[j][10],fieldInfo[j][11],fieldInfo[j][12]])
+            }
+        }
+
+        // Require that any new field be better than the old field by at least
+        // minDiff. Otherwise, continue observing the old field.
+        // TODO: make this if/else more clever
+        sortFields(goodFields)
+        if (sortedFields.length == 1)
+        {
+            fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
+            prevField = sortedFields[0][3]
+        }
+        else if (sortedFields[0][3] != prevField && sortedFields[1][3] == prevField && sortedFields[0][10] - sortedFields[1][10] < minDiff)
+        {
+            fieldsToObserve.push([sortedFields[1][0],sortedFields[1][1],sortedFields[1][2],sortedFields[1][3],sortedFields[1][4],sortedFields[1][5],sortedFields[1][6],sortedFields[1][7],sortedFields[1][8],sortedFields[1][9],sortedFields[1][10],sortedFields[1][11],sortedFields[1][12]]);
+            prevField = sortedFields[1][3]
+        }
+        else
+        {
+            fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
+            prevField = sortedFields[0][3]
+        }
+        
+    }
+
+
+/*---------------------------Order & Print Plan------------------------------*/
+
+    // Check length of fields to observe
+    Console.PrintLine("# of selected time blocks: " + fieldsToObserve.length)
+    Console.PrintLine("")
+
+    // Push first field, then check if the following field is the same. If it
+    // is, move onto the next field. Repeat until the end of the list and
+    // then push the final field
+    finalFields = []
+    finalFields.push([fieldsToObserve[0][0],fieldsToObserve[0][1],fieldsToObserve[0][2],fieldsToObserve[0][3],fieldsToObserve[0][4],fieldsToObserve[0][5],fieldsToObserve[0][6],fieldsToObserve[0][7],fieldsToObserve[0][8],fieldsToObserve[0][9],fieldsToObserve[0][10],fieldsToObserve[0][11],fieldsToObserve[0][12]])
+    for (i=0; i<fieldsToObserve.length-1; i++)
+    {
+        if (fieldsToObserve[i][3] != fieldsToObserve[i+1][3])
+        {
+            //finalFields.push([fieldsToObserve[i][0],fieldsToObserve[i][1],fieldsToObserve[i][2],fieldsToObserve[i][3],fieldsToObserve[i][4],fieldsToObserve[i][5],fieldsToObserve[i][6],fieldsToObserve[i][7],fieldsToObserve[i][8],fieldsToObserve[i][9],fieldsToObserve[i][10],fieldsToObserve[i][11],fieldsToObserve[i][12]])
+            finalFields.push([fieldsToObserve[i+1][0],fieldsToObserve[i+1][1],fieldsToObserve[i+1][2],fieldsToObserve[i+1][3],fieldsToObserve[i+1][4],fieldsToObserve[i+1][5],fieldsToObserve[i+1][6],fieldsToObserve[i+1][7],fieldsToObserve[i+1][8],fieldsToObserve[i+1][9],fieldsToObserve[i+1][10],fieldsToObserve[i+1][11],fieldsToObserve[i+1][12]])
+        }
+    }
+
+    // Print table of raw finalFields array
+    Console.PrintLine("")
+    Console.PrintLine("=== finalFields ===")
+    ts.WriteLine(Util.SysUTCDate + " === finalFields ===")
+    for (k=0; k < finalFields.length; k++)
+    {
+        ts.WriteLine(Util.SysUTCDate +  " " + finalFields[k])
+        Console.PrintLine(finalFields[k])
+    }
+
+    // Print table of formatted finalFields array
+    Console.PrintLine("")
+    Console.PrintLine("=== Final Field Short List ===")
+    ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Short List ===")
+
+    ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Coordinates ===")
+    for (i=0; i<finalFields.length; i++)
+    {
+        ts.WriteLine(Util.SysUTCDate + "Field: " + finalFields[i][3] + "  Elev: " + finalFields[i][0] + "  Az: " + finalFields[i][1])
+    }
+
+    //need to write finalFields out to csv file, since we are saving state
+
+    // Convert the array of arrays into a CSV string
+    const finalFieldsCSVContent = data.map(row => row.join(",")).join("\n");
+
+    // Write the CSV content to a file
+    fs.writeFile('finalFields.csv', finalFieldsCSVContent, 'utf8', (err) => {
+        if (err) {
+            console.error('Error writing to finalFieldsCSVContent file', err);
+        } else {
+            console.log('finalFieldsCSVContent file has been written successfully');
+        }
+    });
+}
+
+function breakObservation(finalFields, currentRunColibriField){
+
+    var breakObsDirectoryName = '5 minutes break TNO Observations';
+
+    // Create coordinate transform for the current request
+    var currentFieldCt = Util.NewCThereAndNow();
+    currentFieldCt.RightAscension = finalFields[currentRunColibriField][2] / 15; // Convert RA from degrees to hours.
+    currentFieldCt.Declination = finalFields[currentRunColibriField][3];
+
+    // Log the coordinates to which the telescope will slew
+    updateLog("Slewing to...", "INFO");
+    updateLog("RA: " + currentFieldCt.RightAscension, "INFO");
+    updateLog("Dec: " + currentFieldCt.Declination, "INFO");
+    updateLog("Alt: " + currentFieldCt.Elevation, "INFO");
+    updateLog("Az: " + currentFieldCt.Azimuth, "INFO");
+
+    // Command the telescope to slew to the target field.
+    gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
+    // Wait for the telescope and dome to finish slewing
+    while (Telescope.Slewing == true) {
+        Console.PrintLine("Huh. Still Slewing...");
+        Util.WaitForMilliseconds(500); // Wait for 0.5 seconds between checks.
+    }
+
+    Dome.UnparkHome(); // Unpark the dome and move it to the home position.
+    if (Dome.slave == false) { Dome.slave = true; } // Ensure the dome is slaved to the telescope.
+
+    // Wait for the dome to finish slewing.
+    while (Dome.Slewing == true) {
+        Console.PrintLine("Dome is still slewing. Give me a minute...");
+        Util.WaitForMilliseconds(500); // Wait for 0.5 seconds between checks
+    }
+
+    // Update the log when the telescope and dome have reached the target coordinates.
+    updateLog("At target.", "INFO");
+    updateLog("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az. = " + currentFieldCt.Azimuth.toFixed(2), "INFO");
+
+    // Start collecting data for the observation
+    updateLog("Starting data collection...", "INFO");
+
+    // Attempt to link the camera for image capturing.
+    try {
+        if (!ccdCamera.LinkEnabled) {
+            updateLog("Camera is not linked. Attempting to link...", "INFO");
+            ccdCamera.LinkEnabled = true; // Enable the camera link.
+
+            if (ccdCamera.LinkEnabled) {
+                updateLog("Camera linked successfully.", "INFO");
+            } else {
+                updateLog("Failed to link the camera." , "ERROR");
+                return;
+            }
+        } else {
+            updateLog("Camera already linked.", "INFO");
+        }
+    } catch (e) {
+        updateLog("An error occurred: " + e.message, "ERROR");
+    }
+
+    var directoryName = "break observation " + currentRunColibriField + " field of Run Colibri"
+    // Create directories for storing the captured images.
+    Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\" + directoryName)
+    Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\" + directoryName)
+
+    // Iteration counters for exposures and dark frames.
+    var darkCounter = breakDarkInterval; // Initialize the dark frame counter. Set equal to interval so that dark set is collected on first run.
+    var runCounter = 1;
+
+    // 5 in line below for 5 minute long observation duration
+    var endJD = Util.SysJulianDate + (5 / 1440); // Calculate when the observation should end (in Julian Date)
+
+    // Start a loop that runs while the current Julian Date is less than or equal to the observation's end time.
+    while (Util.SysJulianDate <= endJD) {
+        // Check if it's time to adjust the telescope pointing and take dark frames.
+        // This happens either every 30 minutes or if the remaining observation time is less than 30 minutes.
+        if (darkCounter == breakDarkInterval) {
+            // Log the start of telescope pointing adjustment using a child script.
+            updateLog("Readjust the telescope pointing using child script.", "INFO");
+            
+            // Adjust the telescope pointing to the current target (Right Ascension and Declination).
+            adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+            
+            // Wait for the telescope to finish slewing (moving to the target coordinates)
+            while (Telescope.Slewing == true) {
+                Console.PrintLine("Huh. Still Slewing..."); // Inform the user the telescope is still slewing.
+                Util.WaitForMilliseconds(500); // Wait for 0.5 seconds before checking again.
+            }
+
+            // Unpark the dome and move it to its home position
+            Dome.UnparkHome();
+
+            // If the dome is not already slaved (automatically follows the telescope), enable slaving
+            if (Dome.slave == false) { Dome.slave = true; }
+
+            // Wait for the dome to finish slewing (moving to align with the telescope)
+            while (Dome.Slewing == true) {
+                Console.PrintLine("Dome is still slewing. Give me a minute..."); // Inform the user that the dome is still moving
+                Util.WaitForMilliseconds(500); // Wait for 0.5 seconds before checking again
+            }
+
+            // Check the current side of the pier the telescope is on (East or West) and log it
+            if (Telescope.SideOfPier == 0) {
+                pierside = "E"; // Telescope is on the East side of the pier
+            } else {
+                pierside = "W"; // Telescope is on the West side of the pier
+            }
+            updateLog("Pier side: " + pierside, "INFO");
+            
+            // Log that the telescope is about to take dark frames (calibration images with no light).
+            updateLog("Taking Darks.", "INFO");
+
+            // Capture dark frames using the specified exposure time and save them to the designated directory.
+            refCollection(2, breakObsExposureTime, "D:\\ColibriData\\" + today.toString() + "\\Dark\\" + breakObsDirectoryName);
+            
+            // Reset the dark frame counter to start counting again for the next interval.
+            darkCounter = 0;
+        }
+
+        // Increment the dark frame counter to track when the next dark frame should be taken.
+        darkCounter++;
+        updateLog("Dark counter = " + darkCounter.toString(), "INFO"); // Log the updated dark frame counter value.
+
+        // Attempt to start a new exposure for the observation.
+        try {
+            updateLog("Starting exposure...", "INFO");
+
+            // Set the binning (resolution) of the camera based on the observation parameters.
+            ccdCamera.BinX = breakObsBinning; 
+            ccdCamera.BinY = breakObsBinning;
+
+            // Begin the exposure with the specified exposure time and filter.
+            // The exposure time is expected in seconds.
+            ccdCamera.Expose(breakObsExposureTime, 1); // hard coded camera filter to normal 
+
+            // Log a successful start of the exposure.
+            updateLog("Exposure started successfully", "INFO");
+        } catch (e) {
+            // Log an error if something goes wrong while starting the exposure.
+            updateLog("Error starting exposure: " + e.message, "ERROR");
+        }
+
+        // Wait for the image to be ready after the exposure.
+        var maxWaitTime = breakObsExposureTime * 1000; // Maximum wait time (the exposure time), in milliseconds.
+        var waitInterval = 1000; // Check every 1000ms (1 second).
+        var elapsedTime = 0; // Initialize the elapsed time counter.
+
+        try {
+            // Wait for the camera to signal that the image is ready, or until the maximum wait time is reached.
+            while (!ccdCamera.ImageReady && elapsedTime < maxWaitTime) {
+                Util.WaitForMilliseconds(waitInterval); // Wait for the defined interval (1 second).
+                elapsedTime += waitInterval; // Increment the elapsed time by the interval.
+            }
+
+            // If the image is ready, save it to the specified file path.
+            if (ccdCamera.ImageReady) {
+                var filePath = "D:\\ColibriData\\" + today.toString() + "\\" + breakObsDirectoryName + "\\image_" + new Date().getTime() + "_" + breakObsExposureTime + "s.fits"; 
+                updateLog("Saving image to: " + filePath, "INFO");  // Log the file path where the image will be saved.
+                ccdCamera.SaveImage(filePath); // Save the image to the specified path.
+                updateLog("Image saved successfully to: " + filePath, "INFO");// Log the successful image save.
+            } else {
+                // Log an error if the image is not ready after the maximum wait time.
+                updateLog("Image not ready after waiting.", "ERROR");
+            }
+        } catch (e) {
+            // Log an error if something goes wrong during image saving.
+            updateLog("Error saving image: " + e.message, "ERROR");
+        }
+        
+        // Increment the run counter after each successful exposure.
+        runCounter++;
+    }
+
+    // Attempt to safely disconnect from the camera after all exposures are complete.
+    try {
+        ccdCameraCamera.LinkEnabled = false; // Disable the camera link (disconnect).
+        updateLog("Camera disconnected.", "INFO"); // Log the successful camera disconnection.
+    } catch (e) {
+        // Log an error if something goes wrong while disconnecting the camera.
+        updateLog("An error occurred: " + e.message, "ERROR");
+    }
 }
