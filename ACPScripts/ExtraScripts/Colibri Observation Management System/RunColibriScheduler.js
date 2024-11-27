@@ -1255,13 +1255,15 @@ var slewAttempt = 0;
 // Log to console and file if logging is enabled.
 if (logconsole == true) {
     // Create a log file with a timestamped name and enable logging.
-    Console.LogFile = "d:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-ACPconsole.log";
+    Console.LogFile = "d:\\Logs\\Akshat_Owen_Test_ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-ACPconsole.log";
     Console.Logging = true;
 }
 
 // Retrieve the sunset time from astronomical twilight data.
 sunset  = twilightTimes(Util.SysJulianDate)[1]; // Sunset in Julian Date (JD)
-LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log"; // Log file path based on sunset time.
+LogFile = "d:\\Logs\\Akshat_Owen_Test_ACP\\" + JDtoUTC(sunset) + "-ACP.log"; // Log file path based on sunset time.
+
+ts.writeLine(Util.SysUTCDate + " " + type + ": " + contents);
 
 // Create an ActiveX FileSystemObject for file handling
 fso = new ActiveXObject("Scripting.FileSystemObject");
@@ -1362,7 +1364,7 @@ function main() {
             currentDate = getDate();
 
             // Define the log file path using the current sunset time in UTC format.
-            LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
+            LogFile = "d:\\Logs\\Akshat_Owen_Test_ACP\\" + JDtoUTC(sunset) + "-ACP.log";
 
             if (fso.FileExists(LogFile)) {
                 Console.PrintLine(Util.SysUTCDate + " INFO: Log file exists. Appending to existing log file.");
@@ -1389,7 +1391,7 @@ function main() {
         currentDate = getDate();
 
         // Define the log file path using the current sunset time in UTC format.
-        LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log"
+        LogFile = "d:\\Logs\\Akshat_Owen_Test_ACP\\" + JDtoUTC(sunset) + "-ACP.log";
 
         // Check if the log file already exists.
         if (fso.FileExists(LogFile)) {
@@ -1420,10 +1422,11 @@ function main() {
         var today = JDtoUTC(sunset);
 
         // Create the data directory for today's observations, including a subdirectory for dark frames.
-        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\")
-        
+        //Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\")
+        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString() + "\\Dark\\")
+       
         // Log the creation of the directory.
-        updateLog("Created today's data directory at d:\\ColibriData\\" + today.toString(), "INFO");
+        updateLog("Created today's data directory at d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString(), "INFO");
         
         // Mark that the first run is completed.
         firstRun = false
@@ -1576,8 +1579,10 @@ function main() {
         }
 
         // Create directories for storing the captured images.
-        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName)
-        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\" + bestObs.directoryName)
+        //Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName)
+        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString() + "\\" + bestObs.directoryName)
+        //Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\" + bestObs.directoryName)
+        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString() + "\\Dark\\" + bestObs.directoryName)
 
         // Iteration counters for exposures and dark frames.
         var darkInterval = 30 / (bestObs.exposureTime / 60); // Calculate how many exposures fit into 30 minutes.
@@ -1627,7 +1632,7 @@ function main() {
                 updateLog("Taking Darks.", "INFO");
 
                 // Capture dark frames using the specified exposure time and save them to the designated directory.
-                refCollection(2, bestObs.exposureTime, "D:\\ColibriData\\" + today.toString() + "\\Dark\\" + bestObs.directoryName);
+                refCollection(2, bestObs.exposureTime, "d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString() + "\\Dark\\" + bestObs.directoryName);
 
                 // Reset the dark frame counter to start counting again for the next interval.
                 darkCounter = 0;
@@ -1670,7 +1675,8 @@ function main() {
 
                 // If the image is ready, save it to the specified file path.
                 if (ccdCamera.ImageReady) {
-                    var filePath = "D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName + "\\image_" + new Date().getTime() + "_" + bestObs.exposureTime + "s.fits"; 
+                    var filePath = "d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString() + "\\" + bestObs.directoryName + "\\image_" + new Date().getTime() + "_" + bestObs.exposureTime + "s.fits"; 
+
                     updateLog("Saving image to: " + filePath, "INFO");  // Log the file path where the image will be saved.
                     ccdCamera.SaveImage(filePath); // Save the image to the specified path.
                     updateLog("Image saved successfully to: " + filePath, "INFO");// Log the successful image save.
@@ -1993,8 +1999,10 @@ function breakObservation(finalFields, currentRunColibriField){
 
     var directoryName = "break observation " + currentRunColibriField + " field of Run Colibri"
     // Create directories for storing the captured images.
-    Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\" + directoryName)
-    Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\" + directoryName)
+    //Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\" + directoryName)
+    Util.ShellExec("cmd.exe", "/c mkdir -p d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString() + "\\" + directoryName)
+    //Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\" + directoryName)
+    Util.ShellExec("cmd.exe", "/c mkdir -p d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString() + "\\Dark\\" + directoryName)
 
     // Iteration counters for exposures and dark frames.
     var darkCounter = breakDarkInterval; // Initialize the dark frame counter. Set equal to interval so that dark set is collected on first run.
@@ -2044,7 +2052,8 @@ function breakObservation(finalFields, currentRunColibriField){
             updateLog("Taking Darks.", "INFO");
 
             // Capture dark frames using the specified exposure time and save them to the designated directory.
-            refCollection(2, breakObsExposureTime, "D:\\ColibriData\\" + today.toString() + "\\Dark\\" + breakObsDirectoryName);
+            //refCollection(2, breakObsExposureTime, "D:\\ColibriData\\" + today.toString() + "\\Dark\\" + breakObsDirectoryName);
+            refCollection(2, breakObsExposureTime, "d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString() + "\\Dark\\" + breakObsDirectoryName);
             
             // Reset the dark frame counter to start counting again for the next interval.
             darkCounter = 0;
@@ -2087,7 +2096,7 @@ function breakObservation(finalFields, currentRunColibriField){
 
             // If the image is ready, save it to the specified file path.
             if (ccdCamera.ImageReady) {
-                var filePath = "D:\\ColibriData\\" + today.toString() + "\\" + breakObsDirectoryName + "\\image_" + new Date().getTime() + "_" + breakObsExposureTime + "s.fits"; 
+                var filePath = "d:\\Logs\\Akshat_Owen_Data_Directory_Test\\" + today.toString() + "\\" + breakObsDirectoryName + "\\image_" + new Date().getTime() + "_" + breakObsExposureTime + "s.fits"; 
                 updateLog("Saving image to: " + filePath, "INFO");  // Log the file path where the image will be saved.
                 ccdCamera.SaveImage(filePath); // Save the image to the specified path.
                 updateLog("Image saved successfully to: " + filePath, "INFO");// Log the successful image save.
