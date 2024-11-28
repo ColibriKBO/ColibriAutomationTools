@@ -143,7 +143,7 @@ function getRequests() {
 // NB - 2024/11/7
 ////////////////////////////////////////
 
-function transformAltAzToRadDec(requests) {
+function transformAltAzToRadDec(requests, testing) {
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
         
@@ -154,8 +154,12 @@ function transformAltAzToRadDec(requests) {
             Console.PrintLine("!!!Updating" + request.directoryName);
 
             // Create a new coordinate transformation object using current LST and site latitude
-            var ct = Util.NewCThereAndNow();
-          
+            if(testing){
+                var ct = Util.NewCT(Telescope.SiteLatitude,20);
+            }
+            else{
+                var ct = Util.NewCThereAndNow();
+            }
             // Enter the elevation (altitude) and azimuth to the cordinate transformation to calculate the ra/dec
             ct.Elevation = request.alt;
             ct.Azimuth = request.az;
@@ -325,14 +329,17 @@ function JDtoUTC(JulianDate) {
 		s += day;
 	}
 	return(s);
-}
+}   
 
 // Calculates the altitude of the target based on its RA, DEC, and the Local Sidereal Time (LST).
 function calculateAltitude(ra, dec, newLST) {
     var ct = Util.NewCT(Telescope.SiteLatitude, newLST); // Create a new coordinate transform (CT) object with the telescope's latitude and current LST.
 
     Console.PrintLine("Elevation before: " + ct.Elevation);
-    ct.RightAscension = ra/15; // Convert Right Ascension from degrees to hours. Set the Right Ascension of the target.
+    Console.PrintLine("Right ascension: " + ra);
+    Console.PrintLine("Declination " + dec);
+    Console.PrintLine("Local Sidereal time" + newLST);
+    ct.RightAscension = ra; // Convert Right Ascension from degrees to hours. Set the Right Ascension of the target.
     ct.Declination = dec; // Set the Declination of the target.
     Console.PrintLine("Elevation after: " + ct.Elevation);
 
@@ -361,6 +368,7 @@ function filterByTime(requests, sunset, sunrise, testing) {
     else{
         Console.PrintLine("TESTING adding .2 to jd")
         currJD = sunset + .2;
+        Console.Printline("TEStING WITH JULIAN DATE: " + currJD);
     }
 
 
@@ -1409,6 +1417,7 @@ function main() {
         // If weather server is connected, log success and wait for 3 seconds.
             updateLog("Weather server is connected. Contining with operations.", "INFO");
             Util.WaitForMilliseconds(3000);
+            ignoreWeather = false;
     } else {
         // If no weather server, ask for user confirmation to proceed.
         if (Util.Confirm("No weather server! Do you want to continue? Choose wisely...")) {
@@ -1509,13 +1518,13 @@ function main() {
     // Begin the main observation loop.
     do {
         // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
-        requests = transformAltAzToRadDec(requests); // Update RA and DEC coordinates for each observation request that has an altitude and azimuth.
+        requests = transformAltAzToRadDec(requests, testing); // Update RA and DEC coordinates for each observation request that has an altitude and azimuth.
         var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT,testing);
         Console.PrintLine(bestObs)
 
         Console.PrintLine("Best Observation azimuth " + bestObs.Azimuth);
         Console.PrintLine("Best Observation ra" + bestObs.ra);
-        if(bestObs.Azimuth != null){
+        if(bestObs.az != null){
             trkOff()
             Console.PrintLine("Azimuth provided, tracking turned off")
         }
@@ -1570,7 +1579,7 @@ function main() {
 
         // Create coordinate transform for the current request
         var currentFieldCt = Util.NewCThereAndNow();
-        currentFieldCt.RightAscension = bestObs.ra / 15; // Convert RA from degrees to hours.
+        currentFieldCt.RightAscension = bestObs.ra; // Convert RA from degrees to hours.
         currentFieldCt.Declination = bestObs.dec;
 
         // Log the coordinates to which the telescope will slew
