@@ -1,11 +1,14 @@
 // Scheduling observation request objects
 // Request Object is used to represent scheduling observation requests.
 // Each request contains details such as target coordinates, timing, exposure settings, and observation metadata.
-function Request(directoryName, priority, ra, dec, alt, az, startUTC, startJD, endUTC, endJD, obsDuration, exposureTime, filter, binning, csvIndex) {
+function Request(directoryName, priority, id, ra, dec, alt, az, startUTC, startJD, endUTC, endJD, obsDuration, exposureTime, filter, binning, csvIndex) {
     // Directory name where the observation data will be saved.
     this.directoryName = directoryName;
     // Priority of the observation request (higher priority requests are scheduled first).
     this.priority = priority;
+
+    //Norad sat id
+    this.id = id;
 
     // Right Ascension (RA) of the celestial target (in degrees).
     this.ra = ra;
@@ -58,21 +61,32 @@ function RequestIndices() {
     this.directoryName = 0;     // Index of the directory name in the CSV file.
     this.priority = 1;          // Index of the priority field.
 
-    this.ra = 2;                // Index of the Right Ascension (RA) field.
-    this.dec = 3;               // Index of the Declination (DEC) field.
+    this.id = 2;
+
+    this.ra = 3;                // Index of the Right Ascension (RA) field.
+    this.dec = 4;               // Index of the Declination (DEC) field.
     
-    this.alt = 4;               // Index of the altitude field.
-    this.az = 5;                // Index of the azimuth field.
+    this.alt = 5;               // Index of the altitude field.
+    this.az = 6;                // Index of the azimuth field.
 
-    this.startTime = 6;         // Index of the observation start time field.
-    this.endTime = 7;           // Index of the observation end time field.
+    this.startTime = 7;         // Index of the observation start time field.
+    this.endTime = 8;           // Index of the observation end time field.
 
-    this.obsDuration = 8;       // Index of the observation duration field.
-    this.exposureTime = 9;      // Index of the exposure time field.
-    this.filter = 10;            // Index of the filter field.
-    this.binning = 11;           // Index of the binning field.
+    this.obsDuration = 9;       // Index of the observation duration field.
+    this.exposureTime = 10;      // Index of the exposure time field.
+    this.filter = 11;            // Index of the filter field.
+    this.binning = 12;           // Index of the binning field.
 
-    this.completion = 12;       // Index to track whether the observation request has been completed (1 for completed, 0 for uncompleted).
+    this.completion = 13;       // Index to track whether the observation request has been completed (1 for completed, 0 for uncompleted).
+}
+
+//Function to return a list of Ids from a list of requests
+function getIds(requests){
+    var ids = [];
+    for (var i = 0; i < requests.length; i++) {
+        ids.push(requests[i].id);
+    }
+    return ids;
 }
 
 // Reads and parses observation requests from a CSV file.
@@ -105,6 +119,7 @@ function getRequests() {
                     var request = new Request(
                         rowData[indices.directoryName], // Directory name.
                         parseInt(rowData[indices.priority]), // Priority as an integer.
+                        parseInt(rowData[indices.id]), // Id as an integer.
                         parseFloat(rowData[indices.ra]), // Right Ascension as a float.
                         parseFloat(rowData[indices.dec]), // Declination as a float.
                         parseFloat(rowData[indices.alt]), // Altitude as a float.
@@ -138,6 +153,119 @@ function getRequests() {
     return [requests, lines];
 }
 
+
+function extractPassDetails(jsonString) {
+    // Regular expressions for extracting each value
+    var startAzRegex = /"startAz"\s*:\s*(-?\d+(\.\d+)?)/;
+    var startElRegex = /"startEl"\s*:\s*(-?\d+(\.\d+)?)/;
+    var startUTCRegex = /"startUTC"\s*:\s*(-?\d+)/;
+    var durationRegex = /"duration"\s*:\s*(-?\d+)/;
+    
+    // Extract and parse the values
+    var startAzMatch = jsonString.match(startAzRegex);
+    var startElMatch = jsonString.match(startElRegex);
+    var startUTCMatch = jsonString.match(startUTCRegex);
+    var durationMatch = jsonString.match(durationRegex);
+    
+    // Convert matched values to numbers
+    var result = {
+        startAz: startAzMatch ? parseFloat(startAzMatch[1]) : null,
+        startEl: startElMatch ? parseFloat(startElMatch[1]) : null,
+        startUTC: startUTCMatch ? parseInt(startUTCMatch[1], 10) : null,
+        duration: durationMatch ? parseInt(durationMatch[1], 10) : null
+    };
+    
+    return result;
+}
+
+// Get requests from N2YO API and parse them into Request objects.
+function getN2YORequests(requests) {
+    var requestsResults = []; // Array to store the parsed Request objects.
+    Console.PrintLine("N2YO Requests");
+
+    // Loop through the request to see which ones have IDs
+    for (var i = 0; i < requests.length; i++) {
+        var request = requests[i];  
+        // Check if the request has an ID (indicating it is from the N2YO API).
+        var id = request.id;
+        Console.PrintLine(request.directoryName + "Request id" + id);
+
+        
+        if (!isNaN(id)) {
+            try{
+            // get  data from the N2YO API.
+            Console.PrintLine("Creating http objext");
+            var http = new ActiveXObject("MSXML2.XMLHTTP");
+            Console.PrintLine("Created http objext");
+            var url = "https://api.n2yo.com/rest/v1/satellite/visualpasses/" + id + "/"+ Telescope.SiteLatitude+ "/" + Telescope.SiteLongitude +"/250/1/60/&apiKey=DE25L6-56RBY8-8TNCEB-5DOK";
+            Console.PrintLine("Hitting URL " + url);
+            http.open("GET", url, false);
+            http.send();
+            Console.PrintLine("Sent req");
+
+
+                    
+            if (http.status == 200) {
+                var response = http.responseText;
+                Console.PrintLine("N2YO Response:" + response);
+                
+                satInfo = extractPassDetails(response);
+
+                Console.PrintLine("AZ " + satInfo.startAz);
+                Console.PrintLine("Start UTC " + satInfo.startUTC);
+
+                // Values needed from json response for geostationary: startAz, startEl, startUTC, duration
+                // RA,Dec,Alt,Az,Start Time,End Time,Obs Duration,Exposure Time,Filter,Binning,Completion,
+                var directoryName = request.directoryName;
+                var ra = request.ra;
+                var dec = request.dec;
+                var alt = request.alt;
+                var az = satInfo.startAz;
+                var startTime = epochToJulian(satInfo.startUTC);
+                var endTime = request.endTime;
+                var obsDuration = satInfo.duration;
+                var exposureTime = request.exposureTime;
+                var filter = request.filter;
+                var binning = request.binning;
+                var completion = request.completion;
+
+                var request = new Request(
+                    directoryName,
+                    id, 
+                    ra,
+                    dec,
+                    alt,
+                    az,
+                    startTime,
+                    endTime,
+                    obsDuration,
+                    exposureTime,
+                    filter,
+                    binning,
+                    completion
+                )
+                requestsResults.push(request);
+            } else {
+                Console.PrintLine("Error: " + response);
+            }
+            }catch(e){
+                Console.PrintLine("Error: " + e);
+            }
+            
+        }
+        else{
+            // Add the request to the list of requests.
+            requestsResults.push(request);
+        }
+          
+    }
+    return requestsResults;
+} 
+            
+
+        
+
+
 ////////////////////////////////////////
 // Update RA and DEC in Request array which have an altitude and azimuth
 // NB - 2024/11/7
@@ -151,22 +279,24 @@ function transformAltAzToRadDec(requests, testing) {
         Console.PrintLine(request.directoryName + " Altitude: " + request.alt)
         // Check if altitude and azimuth values are provided
         if (request.alt != null && request.az != null) {
-            Console.PrintLine("!!!Updating" + request.directoryName);
 
             // Create a new coordinate transformation object using current LST and site latitude
             if(testing){
                 var ct = Util.NewCT(Telescope.SiteLatitude,20);
             }
             else{
-                var ct = Util.NewCThereAndNow();
+                var startTimeLst = unixTimeToLST(request.startTime, Telescope.SiteLongitude);
+                var startct = Util.NewCT(Telescope.SiteLatitude, startTimeLst)
+
+               
             }
             // Enter the elevation (altitude) and azimuth to the cordinate transformation to calculate the ra/dec
-            ct.Elevation = request.alt;
-            ct.Azimuth = request.az;
+            startct.Elevation = request.alt;
+            startct.Azimuth = request.az;
 
             // Retrieve the converted RA and Dec values
-            requests[i].ra = ct.RightAscension
-            requests[i].dec = ct.Declination
+            requests[i].ra = startct.RightAscension
+            requests[i].dec = startct.Declination
 
             // Converted RA and Dec values
             Console.PrintLine(requests[i].directoryName + " Right Ascension: " + requests[i].ra);
@@ -330,6 +460,12 @@ function JDtoUTC(JulianDate) {
 	}
 	return(s);
 }   
+
+// Converts Unix time to JD
+function epochToJulian(epochTime) {
+    var julianDate = epochTime / 86400 + 2440587.5;
+    return julianDate;
+}
 
 // Calculates the altitude of the target based on its RA, DEC, and the Local Sidereal Time (LST).
 function calculateAltitude(ra, dec, newLST) {
@@ -1512,7 +1648,11 @@ function main() {
     // Retrieve observation requests and their corresponding CSV lines.
     var csvData = getRequests();
     var requests = csvData[0]; // Observation requests
+    var requests = getN2YORequests(requests); // N2YO satellite tracking requests
+    Console.PrintLine("Array of reqs");
+    printPlan(requests);
     var lines = csvData[1]; // Lines from the CSV file
+
     Console.PrintLine("Sheet Grabbed");
 
     // Begin the main observation loop.
