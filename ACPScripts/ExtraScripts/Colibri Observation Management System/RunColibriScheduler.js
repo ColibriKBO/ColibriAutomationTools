@@ -113,7 +113,6 @@ function getRequests() {
                 rowData = line.split(","); // Split the line by commas to get individual fields.
                 
                 // Check if the observation request has not been completed (completion field is 0).
-                Console.PrintLine("At " + rowData[indices.directoryName])
                 if (rowData[indices.completion] == 0) {
                     // Create a new Request object using the parsed CSV fields.
                     var request = new Request(
@@ -187,23 +186,15 @@ function getN2YORequests(requests) {
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];  
         // Check if the request has an ID (indicating it is from the N2YO API).
-        var id = request.id;
-        Console.PrintLine(request.directoryName + "Request id" + id);
-
-        
+        var id = request.id;        
         if (!isNaN(id)) {
             try{
             // get  data from the N2YO API.
-            Console.PrintLine("Creating http objext");
             var http = new ActiveXObject("MSXML2.XMLHTTP");
-            Console.PrintLine("Created http objext");
             var url = "https://api.n2yo.com/rest/v1/satellite/visualpasses/" + id + "/"+ Telescope.SiteLatitude+ "/" + Telescope.SiteLongitude +"/250/1/60/&apiKey=DE25L6-56RBY8-8TNCEB-5DOK";
             Console.PrintLine("Hitting URL " + url);
             http.open("GET", url, false);
             http.send();
-            Console.PrintLine("Sent req");
-
-
                     
             if (http.status == 200) {
                 var response = http.responseText;
@@ -211,40 +202,47 @@ function getN2YORequests(requests) {
                 
                 satInfo = extractPassDetails(response);
 
-                Console.PrintLine("AZ " + satInfo.startAz);
-                Console.PrintLine("Start UTC " + satInfo.startUTC);
+                // Check if the response contains the required values. When the satellite is not visible, the response should be empty.
+                if(satInfo.startAz != null && satInfo.startEl != null && satInfo.startUTC != null && satInfo.duration != null ){
 
                 // Values needed from json response for geostationary: startAz, startEl, startUTC, duration
                 // RA,Dec,Alt,Az,Start Time,End Time,Obs Duration,Exposure Time,Filter,Binning,Completion,
                 var directoryName = request.directoryName;
+                var priority = request.priority;
                 var ra = request.ra;
                 var dec = request.dec;
-                var alt = request.alt;
+                var alt = satInfo.startEl;
                 var az = satInfo.startAz;
-                var startTime = epochToJulian(satInfo.startUTC);
-                var endTime = request.endTime;
+                var startUTC = -1;
+                var startJD = epochToJulian(satInfo.startUTC);
+                var endUTC = -1;
+                var endJD = epochToJulian(satInfo.startUTC + satInfo.duration);
                 var obsDuration = satInfo.duration;
                 var exposureTime = request.exposureTime;
                 var filter = request.filter;
                 var binning = request.binning;
-                var completion = request.completion;
+                var csvIndex = request.csvIndex;
 
                 var request = new Request(
-                    directoryName,
+                    directoryName, 
+                    priority, 
                     id, 
-                    ra,
-                    dec,
-                    alt,
-                    az,
-                    startTime,
-                    endTime,
-                    obsDuration,
-                    exposureTime,
-                    filter,
-                    binning,
-                    completion
+                    ra, 
+                    dec, 
+                    alt, 
+                    az, 
+                    startUTC,
+                    startJD,
+                    endUTC, 
+                    endJD, 
+                    obsDuration, 
+                    exposureTime, 
+                    filter, 
+                    binning, 
+                    csvIndex
                 )
                 requestsResults.push(request);
+            }
             } else {
                 Console.PrintLine("Error: " + response);
             }
@@ -263,33 +261,24 @@ function getN2YORequests(requests) {
 } 
             
 
-        
-
 
 ////////////////////////////////////////
 // Update RA and DEC in Request array which have an altitude and azimuth
 // NB - 2024/11/7
 ////////////////////////////////////////
 
-function transformAltAzToRadDec(requests, testing) {
+function transformAltAzToRadDec(requests) {
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
         
-        Console.PrintLine("Before " + request.directoryName)
-        Console.PrintLine(request.directoryName + " Altitude: " + request.alt)
         // Check if altitude and azimuth values are provided
         if (request.alt != null && request.az != null) {
 
             // Create a new coordinate transformation object using current LST and site latitude
-            if(testing){
-                var ct = Util.NewCT(Telescope.SiteLatitude,20);
-            }
-            else{
-                var startTimeLst = unixTimeToLST(request.startTime, Telescope.SiteLongitude);
-                var startct = Util.NewCT(Telescope.SiteLatitude, startTimeLst)
-
-               
-            }
+          
+            var startTimeLst = jdToLst(request.startJD);
+            var startct = Util.NewCT(Telescope.SiteLatitude, startTimeLst);
+        
             // Enter the elevation (altitude) and azimuth to the cordinate transformation to calculate the ra/dec
             startct.Elevation = request.alt;
             startct.Azimuth = request.az;
@@ -298,9 +287,6 @@ function transformAltAzToRadDec(requests, testing) {
             requests[i].ra = startct.RightAscension
             requests[i].dec = startct.Declination
 
-            // Converted RA and Dec values
-            Console.PrintLine(requests[i].directoryName + " Right Ascension: " + requests[i].ra);
-            Console.PrintLine(requests[i].directoryName + " Declination: " + requests[i].dec);
 
         }
     }
@@ -461,10 +447,37 @@ function JDtoUTC(JulianDate) {
 	return(s);
 }   
 
-// Converts Unix time to JD
+// Converts epoch time to JD
 function epochToJulian(epochTime) {
     var julianDate = epochTime / 86400 + 2440587.5;
+
     return julianDate;
+}
+
+// Converts JD to Local Sidereal Time (LST).
+function jdToLst(julianDate) {
+    // Constants
+
+    var DEG_TO_HOURS = 24 / 360; // Convert degrees to hours
+
+    var T = (julianDate - 2451545.0) / 36525;
+
+    // Log individual terms in the GST formula
+    var term1 = 280.46061837;
+    var term2 = 360.98564736629 * (julianDate - 2451545.0);
+    var term3 = 0.000387933 * Math.pow(T, 2);
+    var term4 = -Math.pow(T, 3) / 38710000;
+
+    // Step 3: Calculate Greenwich Sidereal Time (GST)
+    var gst = term1 + term2 + term3 + term4;
+
+    gst = (gst % 360 + 360) % 360;
+    
+    var lst = gst + Telescope.SiteLongitude;
+
+    lst = (lst % 360 + 360) % 360;
+
+    return lst * DEG_TO_HOURS; // LST in hours
 }
 
 // Calculates the altitude of the target based on its RA, DEC, and the Local Sidereal Time (LST).
@@ -502,9 +515,14 @@ function filterByTime(requests, sunset, sunrise, testing) {
     var currJD = Util.SysJulianDate; // Get the current Julian Date.
     }
     else{
-        Console.PrintLine("TESTING adding .2 to jd")
-        currJD = sunset + .2;
-        Console.Printline("TEStING WITH JULIAN DATE: " + currJD);
+        Console.PrintLine("Skipping to nighttime");
+        
+        currJD = sunset + .05;
+
+        if(Util.SysJulianDate > currJD){// Testing at night
+            currJD = Util.SysJulianDate;
+        }
+        Console.Printline("TESTING WITH JULIAN DATE: " + currJD);
     }
 
 
@@ -1649,8 +1667,6 @@ function main() {
     var csvData = getRequests();
     var requests = csvData[0]; // Observation requests
     var requests = getN2YORequests(requests); // N2YO satellite tracking requests
-    Console.PrintLine("Array of reqs");
-    printPlan(requests);
     var lines = csvData[1]; // Lines from the CSV file
 
     Console.PrintLine("Sheet Grabbed");
@@ -1658,7 +1674,7 @@ function main() {
     // Begin the main observation loop.
     do {
         // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
-        requests = transformAltAzToRadDec(requests, testing); // Update RA and DEC coordinates for each observation request that has an altitude and azimuth.
+        requests = transformAltAzToRadDec(requests); // Update RA and DEC coordinates for each observation request that has an altitude and azimuth.
         var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT,testing);
         Console.PrintLine(bestObs)
 
